@@ -1,10 +1,15 @@
+/*
+ * Modifed by Jason Hill
+ * 2023/06/18 - Added constructor for streaming mode
+ *            - Added constructor and reset() for streaming mode
+ *            - Changed clock and data pin from 'int' to 'byte'
+ */
 #pragma once
 
 #include <Arduino.h>
 
 class Ps2Mouse {
 public:
-
   struct Data {
     bool leftButton;
     bool middleButton;
@@ -19,9 +24,10 @@ public:
     byte sampleRate;
   };
   
-  Ps2Mouse(int clockPin, int dataPin);
+  Ps2Mouse(byte clockPin, byte dataPin);
+  Ps2Mouse(byte clockPin, byte dataPin, bool setStream);
 
-  bool reset() const;
+  bool reset(bool stream);
 
   bool setScaling(bool flag) const;
   bool setResolution(byte resolution) const;
@@ -29,8 +35,8 @@ public:
 
   bool getSettings(Settings& settings) const;
 
-  bool enableStreaming() const;
-  bool disableStreaming() const;
+  bool enableStreaming();
+  bool disableStreaming();
   bool readData(Data& data) const;
 
 private:

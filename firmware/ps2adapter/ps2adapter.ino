@@ -1,21 +1,36 @@
+/*
+ * Modifed by Jason Hill
+ * 2023/06/18 - Switched digital read/write to direct port manipulation.
+ *            - Added constructor for streaming mode
+ *            - Changed clock and data pin from 'int' to 'byte'
+ *            - Added debug compile time option (Levels: none, 0, 1), see 'ProMicro.h'
+ */
+#include "ProMicro.h"
 #include "Ps2Mouse.h"
 
-static const int PS2_CLOCK = 2;
-static const int PS2_DATA  = 17;
-static const int RS232_RTS = 3;
-static const int RS232_TX  = 4;
+static const int PS2_CLOCK = 2; //PD2 - Port D, bit 2
+static const int PS2_DATA  = 17;//PC3 - Port C, bit 3
+static const int RS232_RTS = 3; //PD3 - Port D, bit 3
+static const int RS232_TX  = 4; //PD4 - Port D, bit 5
 static const int JP12 = 11;
 static const int JP34 = 12;
 static const int LED = 13;
 
-static Ps2Mouse mouse(PS2_CLOCK, PS2_DATA);
+//static Ps2Mouse mouse(PS2_CLOCK, PS2_DATA, true);
+Ps2Mouse *mouse;  
+
+// Delay between the signals to match 1200 baud
+static const auto usBaudDelay = 1000000 / 1200;
 static bool threeButtons = false;
 
-static void sendSerialBit(int data) {
-  // Delay between the signals to match 1200 baud
-  static const auto usDelay = 1000000 / 1200;
-  digitalWrite(RS232_TX, data);
-  delayMicroseconds(usDelay);
+
+static void sendSerialBit(byte data) {
+  //digitalWrite(RS232_TX, data);
+  if(data)
+    SETRSTXHIGH;
+  else
+    SETRSTXLOW;
+  delayMicroseconds(usBaudDelay);
 }
 
 static void sendSerialByte(byte data) {
@@ -52,34 +67,48 @@ static void sendToSerial(const Ps2Mouse::Data& data) {
 }
 
 static void initSerialPort() {
+#if DEBUG>0
   Serial.println("Starting serial port");
+#endif
   digitalWrite(RS232_TX, HIGH);
   delayMicroseconds(10000);
   sendSerialByte('M');
   if(threeButtons) {
     sendSerialByte('3');
+#if DEBUG>0
     Serial.println("Init 3-buttons mode");
+#endif
   }
   delayMicroseconds(10000);
-
+#if DEBUG>0
   Serial.println("Listening on RTS");
+#endif
   void (*resetHack)() = 0;
   attachInterrupt(digitalPinToInterrupt(RS232_RTS), resetHack, FALLING);
 }
 
 static void initPs2Port() {
+#if DEBUG>0
   Serial.println("Reseting PS/2 mouse");
-  mouse.reset();
-  mouse.setSampleRate(20);
+#endif
+  //TODO: Cleanup
+  //Identify streaming mode or not.
+  //mouse->reset(!digitalRead(JP34));
+#if DEBUG>0
+    Serial.println(F("Setting sample rate"));
+#endif
+  mouse->setSampleRate(40);
 
   Ps2Mouse::Settings settings;
-  if (mouse.getSettings(settings)) {
+  if (mouse->getSettings(settings)) {
+ #if DEBUG>0
     Serial.print("scaling = ");
     Serial.println(settings.scaling);
     Serial.print("resolution = ");
     Serial.println(settings.resolution);
     Serial.print("samplingRate = ");
     Serial.println(settings.sampleRate);
+#endif
   }
 }
 
@@ -93,20 +122,35 @@ void setup() {
   pinMode(LED, OUTPUT);
   digitalWrite(LED, HIGH);
   threeButtons = digitalRead(JP12);
+#if DEBUG>0
   Serial.begin(115200);
+#endif
+  //Identify streaming mode at initilization
+  mouse = new Ps2Mouse(PS2_CLOCK, PS2_DATA, !digitalRead(JP34));
   initSerialPort();
   initPs2Port();
+#if DEBUG>0
   Serial.println("Setup done!");
+#endif
   digitalWrite(LED, LOW);
-  if (digitalRead(JP34) == LOW) {
-    Serial.println("Enabling streaming mode");
-    mouse.enableStreaming();
-  }
 }
 
 void loop() {
   Ps2Mouse::Data data;
-  if (mouse.readData(data)) {
+  if (mouse->readData(data)) {
     sendToSerial(data);
+#if DEBUG>1
+      Serial.print(data.xMovement);
+      Serial.print(",");
+      Serial.print(data.yMovement);
+      Serial.print(",");
+      Serial.print(data.leftButton,HEX);
+      Serial.print(",");
+      Serial.print(data.middleButton,HEX);
+      Serial.print(",");
+      Serial.println(data.rightButton,HEX);     
+#endif
   }
+  //Note: 'mouse' never needs deleted from memory unless testing.
+  //delete mouse;
 }
