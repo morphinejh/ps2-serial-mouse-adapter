@@ -65,7 +65,7 @@ JP1 | Setting |Description
 1-2 | unset   | 3-button Logitech mouse
 1-2 | set     | 2-button Microsoft mouse
 3-4 | unset   | remote mode
-3-4 | set     | streaming mode (experimental)
+3-4 | set     | streaming mode
 
 ## Bill of materials
 
