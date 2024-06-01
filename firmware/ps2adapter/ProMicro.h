@@ -23,18 +23,20 @@
  * more quickly set individual pins to their desired
  * states.
  *PS/2 data pin operations***Bit:76543210************/
-#define SETDATAHIGH   (PORTC |=0b00001000)      //0x08
-#define SETDATALOW    (PORTC &=0b11110111)      //0xF7
-#define SETDATAIN     (DDRC  &=0b11110111)      //0xF7
-#define SETDATAOUT    (DDRC  |=0b00001000)      //0x08
-#define READDATA      ((PINC &=0b00001000)>>3)  //0x08
+#define PS2_SETDATAHIGH   (PORTC |=0b00001000)      //0x08
+#define PS2_SETDATALOW    (PORTC &=0b11110111)      //0xF7
+#define PS2_SETDATAIN     (DDRC  &=0b11110111)      //0xF7
+#define PS2_SETDATAIN_UP  (DDRC  &=0b11110111); PS2_SETDATAHIGH
+#define PS2_SETDATAOUT    (DDRC  |=0b00001000)      //0x08
+#define PS2_READDATA      ((PINC &=0b00001000)>>3)  //0x08
 /*PS/2 clock pin operations**Bit:76543210************/
-#define SETCLOCKHIGH  (PORTD |=0b00000100)      //0x04
-#define SETCLOCKLOW   (PORTD &=0b11111011)      //0xFB
-#define SETCLOCKIN    (DDRD  &=0b11111011)      //0xFB
-#define SETCLOCKOUT   (DDRD  |=0b00000100)      //0x04
-#define READCLOCK     ((PIND &=0b00000100)>>2)  //0x04
+#define PS2_SETCLOCKHIGH  (PORTD |=0b00000100)      //0x04
+#define PS2_SETCLOCKLOW   (PORTD &=0b11111011)      //0xFB
+#define PS2_SETCLOCKIN    (DDRD  &=0b11111011)      //0xFB
+#define PS2_SETCLOCKOUT   (DDRD  |=0b00000100)      //0x04
+#define PS2_READCLOCK     ((PIND &=0b00000100)>>2)  //0x04
 /*RS-232 pin operations******Bit:76543210************/  
-#define SETRSTXHIGH   (PORTD |=0b00010000)      //0x10
-#define SETRSTXLOW    (PORTD &=0b11101111)      //0xEF
+#define RS_SETTXHIGH      (PORTD |=0b00010000)      //0x10
+#define RS_SETTXLOW       (PORTD &=0b11101111)      //0xEF
+#define RS_SETTXOUT       (DDRD  |=0b00010000)      //0x10
 /****************************************************/

@@ -24,8 +24,8 @@ public:
     byte sampleRate;
   };
   
-  Ps2Mouse(byte clockPin, byte dataPin);
-  Ps2Mouse(byte clockPin, byte dataPin, bool setStream);
+  Ps2Mouse();
+  Ps2Mouse(bool setStream);
 
   bool reset(bool stream);
 
@@ -41,8 +41,5 @@ public:
 
 private:
   struct Impl;
-
-  int m_clockPin;
-  int m_dataPin;
   bool m_stream;
 };

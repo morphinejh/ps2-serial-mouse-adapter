@@ -8,15 +8,11 @@
 #include "ProMicro.h"
 #include "Ps2Mouse.h"
 
-static const int PS2_CLOCK = 2; //PD2 - Port D, bit 2
-static const int PS2_DATA  = 17;//PC3 - Port C, bit 3
 static const int RS232_RTS = 3; //PD3 - Port D, bit 3
-static const int RS232_TX  = 4; //PD4 - Port D, bit 5
 static const int JP12 = 11;
 static const int JP34 = 12;
 static const int LED = 13;
 
-//static Ps2Mouse mouse(PS2_CLOCK, PS2_DATA, true);
 Ps2Mouse *mouse;  
 
 // Delay between the signals to match 1200 baud
@@ -25,11 +21,10 @@ static bool threeButtons = false;
 
 
 static void sendSerialBit(byte data) {
-  //digitalWrite(RS232_TX, data);
   if(data)
-    SETRSTXHIGH;
+    RS_SETTXHIGH;
   else
-    SETRSTXLOW;
+    RS_SETTXLOW;
   delayMicroseconds(usBaudDelay);
 }
 
@@ -70,7 +65,7 @@ static void initSerialPort() {
 #if DEBUG>0
   Serial.println("Starting serial port");
 #endif
-  digitalWrite(RS232_TX, HIGH);
+  RS_SETTXHIGH;
   delayMicroseconds(10000);
   sendSerialByte('M');
   if(threeButtons) {
@@ -89,14 +84,9 @@ static void initSerialPort() {
 
 static void initPs2Port() {
 #if DEBUG>0
-  Serial.println("Reseting PS/2 mouse");
-#endif
-  //TODO: Cleanup
-  //Identify streaming mode or not.
-  //mouse->reset(!digitalRead(JP34));
-#if DEBUG>0
     Serial.println(F("Setting sample rate"));
 #endif
+
   mouse->setSampleRate(40);
 
   Ps2Mouse::Settings settings;
@@ -115,8 +105,9 @@ static void initPs2Port() {
 void setup() {
   // PS/2 Data input must be initialized shortly after power on,
   // or the mouse will not initialize
-  pinMode(PS2_DATA, INPUT_PULLUP);
-  pinMode(RS232_TX, OUTPUT);
+  PS2_SETDATAIN_UP;
+  RS_SETTXOUT;
+
   pinMode(JP12, INPUT_PULLUP);
   pinMode(JP34, INPUT_PULLUP);
   pinMode(LED, OUTPUT);
@@ -126,7 +117,7 @@ void setup() {
   Serial.begin(115200);
 #endif
   //Identify streaming mode at initilization
-  mouse = new Ps2Mouse(PS2_CLOCK, PS2_DATA, !digitalRead(JP34));
+  mouse = new Ps2Mouse(!digitalRead(JP34));
   initSerialPort();
   initPs2Port();
 #if DEBUG>0

@@ -72,44 +72,33 @@ struct Ps2Mouse::Impl {
   const Ps2Mouse& m_ref;
 
   void sendBit(int value) const {
-    /*
-     *while (digitalRead(m_ref.m_clockPin) != LOW) {}
-     *digitalWrite(m_ref.m_dataPin, value);
-     *while (digitalRead(m_ref.m_clockPin) != HIGH) {}
-     */
-    while (READCLOCK != 0) {}
+    while (PS2_READCLOCK != LOW) {}
       if(value){
-        SETDATAHIGH;
+        PS2_SETDATAHIGH;
       } else {
-        SETDATALOW;
+        PS2_SETDATALOW;
       }
-    while (READCLOCK == 0) {}//*/
+    while (PS2_READCLOCK != HIGH) {}//*/
   }
 
   int recvBit() const {
-    /*
-     *while (digitalRead(m_ref.m_clockPin) != LOW) {}
-     *auto result = digitalRead(m_ref.m_dataPin);
-     *while (digitalRead(m_ref.m_clockPin) != HIGH) {}
-     *return result;
-     */
-    while ( READCLOCK != 0) {}
-    auto result = READDATA;
-    while ( READCLOCK == 0) {}
+    while ( PS2_READCLOCK != LOW) {}
+    auto result = PS2_READDATA;
+    while ( PS2_READCLOCK != HIGH) {}
     return result;
   }
 
   bool sendByte(byte value) const {
 
     // Inhibit communication
-    SETCLOCKOUT;  //pinMode(m_ref.m_clockPin, OUTPUT);
-    SETCLOCKLOW;  //digitalWrite(m_ref.m_clockPin, LOW);
+    PS2_SETCLOCKOUT;
+    PS2_SETCLOCKLOW;
     delayMicroseconds(10);
 
     // Set start bit and release the clock
-    SETDATAOUT;   //pinMode(m_ref.m_dataPin, OUTPUT);
-    SETDATALOW;   //digitalWrite(m_ref.m_dataPin, LOW);
-    SETCLOCKIN;   //pinMode(m_ref.m_clockPin, INPUT);
+    PS2_SETDATAOUT;
+    PS2_SETDATALOW;
+    PS2_SETCLOCKIN;
 
     // Send data bits
     byte parity = 1;
@@ -126,17 +115,15 @@ struct Ps2Mouse::Impl {
     sendBit(1);
 
     // Enter receive mode and wait for ACK bit
-    SETDATAIN;  //pinMode(m_ref.m_dataPin, INPUT);
+    PS2_SETDATAIN;
     return recvBit() == 0;
   }
 
   bool recvByte(byte& value) const {
 
     // Enter receive mode
-    //pinMode(m_ref.m_clockPin, INPUT);
-    //pinMode(m_ref.m_dataPin, INPUT);
-      SETCLOCKIN;
-      SETDATAIN;
+    PS2_SETCLOCKIN;
+    PS2_SETDATAIN;
 
     // Receive start bit
     if (recvBit() != 0) {
@@ -219,12 +206,12 @@ struct Ps2Mouse::Impl {
   }
 };
 
-Ps2Mouse::Ps2Mouse(byte clockPin, byte dataPin)
-  : m_clockPin(clockPin), m_dataPin(dataPin), m_stream(false)
+Ps2Mouse::Ps2Mouse()
+  : m_stream(false)
 {}
 
-Ps2Mouse::Ps2Mouse(byte clockPin, byte dataPin, bool setStream)
-  : m_clockPin(clockPin), m_dataPin(dataPin), m_stream(setStream)
+Ps2Mouse::Ps2Mouse(bool setStream)
+  : m_stream(setStream)
 {}
 
 bool Ps2Mouse::reset(bool stream) {
@@ -265,7 +252,7 @@ bool Ps2Mouse::reset(bool stream) {
 
 }
 
-bool Ps2Mouse::enableStreaming(){
+bool Ps2Mouse::enableStreaming() {
   m_stream=true;
   return Impl{*this}.sendCommand(Command::setStreamMode);
 }
@@ -303,8 +290,7 @@ bool Ps2Mouse::readData(Data& data) const {
   Impl impl{*this};
 
   if (m_stream) {
-     //if (digitalRead(m_clockPin) != LOW) {
-     if ((PIND &=0b00000100) != 0 ) {
+     if (PS2_READCLOCK != LOW) {
        return false;
      }
   }
