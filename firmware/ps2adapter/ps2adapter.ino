@@ -15,9 +15,13 @@ static const int RS232_TX  = 4; //PD4 - Port D, bit 5
 static const int JP12 = 11;
 static const int JP34 = 12;
 static const int LED = 13;
+static const int trimPot = A1;
+static const int trimEnable = 13;
 
 //static Ps2Mouse mouse(PS2_CLOCK, PS2_DATA, true);
 Ps2Mouse *mouse;  
+int trimPotVal = 0;
+
 
 // Delay between the signals to match 1200 baud
 static const auto usBaudDelay = 1000000 / 1200;
@@ -119,9 +123,11 @@ void setup() {
   pinMode(RS232_TX, OUTPUT);
   pinMode(JP12, INPUT_PULLUP);
   pinMode(JP34, INPUT_PULLUP);
+  pinMode(trimEnable, INPUT_PULLUP);
   pinMode(LED, OUTPUT);
   digitalWrite(LED, HIGH);
   threeButtons = digitalRead(JP12);
+  trimPotVal = digitalRead(trimEnable)?-10:0;
 #if DEBUG>0
   Serial.begin(115200);
 #endif
@@ -135,9 +141,28 @@ void setup() {
   digitalWrite(LED, LOW);
 }
 
+static bool trimMouseMovement( Ps2Mouse::Data data){
+  if(trimPotVal<=-10)
+    return true;
+  trimPotVal = analogRead(trimPot);
+  int trimVal = trimPotVal / 1023.0 *200 +55;
+  
+  if(data.xMovement>trimVal || data.yMovement>trimVal){
+    #if DEBUG>0
+      Serial.print("Movement greater than: ");
+      Serial.println(trimVal);
+    #endif
+    return false;
+    
+  }
+  return true;
+}
+
 void loop() {
   Ps2Mouse::Data data;
-  if (mouse->readData(data)) {
+  
+  bool status = mouse->readData(data);
+  if (status && trimMouseMovement(data)) {
     sendToSerial(data);
 #if DEBUG>1
       Serial.print(data.xMovement);
