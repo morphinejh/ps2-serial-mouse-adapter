@@ -145,18 +145,25 @@ struct Ps2Mouse::Impl {
 
     // Receive data bits
     value = 0;
-    byte parity = 1;
+    unsigned char parity = 0;
     for (int i = 0; i < 8; i++) {
       byte nextBit = recvBit();
       value |= nextBit << i;
-      parity ^= nextBit;
+      parity += nextBit;
     }
 
     // Receive and check parity bit
-    recvBit(); // TODO check parity
+    parity += recvBit();
 
     // Receive stop bit
     recvBit();
+
+    if(parity% 2 == 0){
+      #if DEBUG>0
+        Serial.println("Parity error!!!");
+      #endif
+      return false;
+    } 
 
     return true;
   }
@@ -315,6 +322,13 @@ bool Ps2Mouse::readData(Data& data) const {
   Packet packet;
   if (!impl.recvData(packet)) {
     return false;
+  }
+
+  if(packet.xOverflow || packet.yOverflow){
+    #if DEBUG>0
+      Serial.println("Movement Overflow!");
+    #endif
+    return ;
   }
 
   data.leftButton = packet.leftButton;
