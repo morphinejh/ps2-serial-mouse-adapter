@@ -8,6 +8,8 @@
 
 #include <Arduino.h>
 
+#define maxMovement 254
+
 class Ps2Mouse {
 public:
   struct Data {
@@ -32,12 +34,15 @@ public:
   bool setScaling(bool flag) const;
   bool setResolution(byte resolution) const;
   bool setSampleRate(byte sampleRate) const;
-
+  bool getDeviceID() const; 
   bool getSettings(Settings& settings) const;
 
   bool enableStreaming();
   bool disableStreaming();
-  bool readData(Data& data) const;
+  int readData(Data& data) const;
+  void clearData(Data& data) const;
+  void accumulate(Data& data,Data& dataT) const;
+  
 
 private:
   struct Impl;

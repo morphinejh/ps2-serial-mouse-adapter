@@ -15,94 +15,58 @@ static const int RS232_TX  = 4; //PD4 - Port D, bit 5
 static const int JP12 = 11;
 static const int JP34 = 12;
 static const int LED = 13;
-static const int trimPot = A1;
-static const int trimEnable = 13;
 
-//static Ps2Mouse mouse(PS2_CLOCK, PS2_DATA, true);
-Ps2Mouse *mouse;  
-int trimPotVal = 0;
+Ps2Mouse *mouse;
+int errorCount = 0;
+bool stream = 0;
+int pullRate = -1;
 
 
-// Delay between the signals to match 1200 baud
-static const auto usBaudDelay = 1000000 / 1200;
+
+Ps2Mouse::Data data;
 static bool threeButtons = false;
 
-
-static void sendSerialBit(byte data) {
-  //digitalWrite(RS232_TX, data);
-  if(data)
-    SETRSTXHIGH;
-  else
-    SETRSTXLOW;
-  delayMicroseconds(usBaudDelay);
-}
-
-static void sendSerialByte(byte data) {
-
-  // Start bit
-  sendSerialBit(0);
-
-  // Data bits
-  for (int i = 0; i < 7; i++) {
-    sendSerialBit((data >> i) & 0x01);
-  }
-
-  // Stop bit
-  sendSerialBit(1);
-
-  // 7+1 bits is normal mouse protocol, but some serial controllers
-  // expect 8+1 bits format. We send additional stop bit to stay
-  // compatible to that kind of controllers.
-  sendSerialBit(1);
-}
 
 static void sendToSerial(const Ps2Mouse::Data& data) {
   auto dx = constrain(data.xMovement, -127, 127);
   auto dy = constrain(-data.yMovement, -127, 127);
   byte lb = data.leftButton ? 0x20 : 0;
   byte rb = data.rightButton ? 0x10 : 0;
-  sendSerialByte(0x40 | lb | rb | ((dy >> 4) & 0xC) | ((dx >> 6) & 0x3));
-  sendSerialByte(dx & 0x3F);
-  sendSerialByte(dy & 0x3F);
-  if (threeButtons) {
-    byte mb = data.middleButton ? 0x20 : 0;
-    sendSerialByte(mb);
-  }
+  byte mb = data.middleButton ? 0x20 : 0;
+  byte msg[4];
+  msg[0]=(0x40 | lb | rb | ((dy >> 4) & 0xC) | ((dx >> 6) & 0x3));
+  msg[1]=(dx & 0x3F);
+  msg[2]=(dy & 0x3F);
+  msg[3]=mb;
+  Serial.write(msg,threeButtons?4:3);  
 }
 
 static void initSerialPort() {
-#if DEBUG>0
-  Serial.println("Starting serial port");
-#endif
-  digitalWrite(RS232_TX, HIGH);
-  delayMicroseconds(10000);
-  sendSerialByte('M');
-  if(threeButtons) {
-    sendSerialByte('3');
-#if DEBUG>0
-    Serial.println("Init 3-buttons mode");
-#endif
-  }
-  delayMicroseconds(10000);
-#if DEBUG>0
-  Serial.println("Listening on RTS");
-#endif
+  #if DEBUG<=0
+    Serial.begin(1200,SERIAL_7N1);
+     byte msg[2];
+      msg[0]='M';
+      msg[1]='3';
+      Serial.write(msg,threeButtons?2:1);
+  #else
+  //In debug mode you dont get mouse movements writen to serial
+    Serial.begin(115200);
+    Serial.println("Starting serial port");
+  #endif
   void (*resetHack)() = 0;
   attachInterrupt(digitalPinToInterrupt(RS232_RTS), resetHack, FALLING);
 }
 
 static void initPs2Port() {
+  errorCount = 0;
+  stream = !digitalRead(JP34);
 #if DEBUG>0
   Serial.println("Reseting PS/2 mouse");
 #endif
   //TODO: Cleanup
   //Identify streaming mode or not.
-  //mouse->reset(!digitalRead(JP34));
-#if DEBUG>0
-    Serial.println(F("Setting sample rate"));
-#endif
-  mouse->setSampleRate(40);
-
+  mouse->reset(stream);
+  mouse->setResolution(2);
   Ps2Mouse::Settings settings;
   if (mouse->getSettings(settings)) {
  #if DEBUG>0
@@ -113,7 +77,9 @@ static void initPs2Port() {
     Serial.print("samplingRate = ");
     Serial.println(settings.sampleRate);
 #endif
+    pullRate = settings.sampleRate;
   }
+    mouse->clearData(data);
 }
 
 void setup() {
@@ -123,59 +89,54 @@ void setup() {
   pinMode(RS232_TX, OUTPUT);
   pinMode(JP12, INPUT_PULLUP);
   pinMode(JP34, INPUT_PULLUP);
-  pinMode(trimEnable, INPUT_PULLUP);
   pinMode(LED, OUTPUT);
-  digitalWrite(LED, HIGH);
   threeButtons = digitalRead(JP12);
-  trimPotVal = digitalRead(trimEnable)?-10:0;
-#if DEBUG>0
-  Serial.begin(115200);
-#endif
-  //Identify streaming mode at initilization
-  mouse = new Ps2Mouse(PS2_CLOCK, PS2_DATA, !digitalRead(JP34));
+  digitalWrite(LED, HIGH);
+
   initSerialPort();
+  mouse = new Ps2Mouse(PS2_CLOCK, PS2_DATA, !digitalRead(JP34));
   initPs2Port();
 #if DEBUG>0
   Serial.println("Setup done!");
 #endif
   digitalWrite(LED, LOW);
+  
 }
 
-static bool trimMouseMovement( Ps2Mouse::Data data){
-  if(trimPotVal<=-10)
-    return true;
-  trimPotVal = analogRead(trimPot);
-  int trimVal = trimPotVal / 1023.0 *200 +55;
-  
-  if(data.xMovement>trimVal || data.yMovement>trimVal){
-    #if DEBUG>0
-      Serial.print("Movement greater than: ");
-      Serial.println(trimVal);
-    #endif
-    return false;
-    
-  }
-  return true;
-}
+
 
 void loop() {
-  Ps2Mouse::Data data;
-  
-  bool status = mouse->readData(data);
-  if (status && trimMouseMovement(data)) {
-    sendToSerial(data);
-#if DEBUG>1
-      Serial.print(data.xMovement);
-      Serial.print(",");
-      Serial.print(data.yMovement);
-      Serial.print(",");
-      Serial.print(data.leftButton,HEX);
-      Serial.print(",");
-      Serial.print(data.middleButton,HEX);
-      Serial.print(",");
-      Serial.println(data.rightButton,HEX);     
-#endif
+  Ps2Mouse::Data newData;
+   if(!stream)
+        delayMicroseconds(1000000/pullRate);
+  int status = mouse->readData(newData);
+  if (status==0) {
+    mouse->accumulate(newData,data);
+    if (Serial.availableForWrite() >= SERIAL_TX_BUFFER_SIZE-1){
+      sendToSerial(data);
+      #if DEBUG>1
+          Serial.print(data.xMovement);
+          Serial.print(",");
+          Serial.print(data.yMovement);
+          Serial.print(",");
+          Serial.print(data.leftButton,HEX);
+          Serial.print(",");
+          Serial.print(data.middleButton,HEX);
+          Serial.print(",");
+          Serial.println(data.rightButton,HEX);     
+    #endif
+      mouse->clearData(data);
+    }
+  }else if(status>1){
+    errorCount++;
+    #if DEBUG>0
+     Serial.println("Packet error");
+    #endif
+    if(errorCount>RESETON){
+      initPs2Port();
+    }
   }
+
   //Note: 'mouse' never needs deleted from memory unless testing.
   //delete mouse;
 }

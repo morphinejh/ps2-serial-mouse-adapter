@@ -1,3 +1,4 @@
+#include "Arduino.h"
 /*
  * Modifed by Jason Hill
  * 2023/06/18 - Switched digital read/write to direct port manipulation.
@@ -72,12 +73,24 @@ struct Ps2Mouse::Impl {
   const Ps2Mouse& m_ref;
 
   void sendBit(int value) const {
+    sendBit(value,RCVTIMEOUT);
+  }
+
+  void sendBit(int value,int timeout) const {
     /*
      *while (digitalRead(m_ref.m_clockPin) != LOW) {}
      *digitalWrite(m_ref.m_dataPin, value);
      *while (digitalRead(m_ref.m_clockPin) != HIGH) {}
      */
-    while (READCLOCK != 0) {}
+    long stime = timeout>0?millis():0;
+    while (READCLOCK != 0) {
+      if(timeout>0 &&millis()-stime>timeout ){
+        #if DEBUG>0
+            Serial.println("Sendbit: Timeout waiting for clock to go low");
+        #endif
+        return;
+      }
+    }
       if(value){
         SETDATAHIGH;
       } else {
@@ -87,29 +100,46 @@ struct Ps2Mouse::Impl {
   }
 
   int recvBit() const {
+    return recvBit(RCVTIMEOUT);
+  }
+
+  int recvBit(int timeout) const {
     /*
      *while (digitalRead(m_ref.m_clockPin) != LOW) {}
      *auto result = digitalRead(m_ref.m_dataPin);
      *while (digitalRead(m_ref.m_clockPin) != HIGH) {}
      *return result;
      */
-    while ( READCLOCK != 0) {}
+    long stime = timeout>0?millis():0;
+    while ( READCLOCK != 0) {
+      if(timeout>0 &&millis()-stime>timeout ){
+        #if DEBUG>0
+            Serial.println("RCVbit: Timeout waiting for clock to go low");
+        #endif
+        return -1;
+      }
+    }
     auto result = READDATA;
     while ( READCLOCK == 0) {}
     return result;
   }
 
   bool sendByte(byte value) const {
-
     // Inhibit communication
-    SETCLOCKOUT;  //pinMode(m_ref.m_clockPin, OUTPUT);
-    SETCLOCKLOW;  //digitalWrite(m_ref.m_clockPin, LOW);
-    delayMicroseconds(10);
+    SETCLOCKOUT; 
+    // pinMode(m_ref.m_clockPin, OUTPUT);
+    SETCLOCKLOW;  
+    // digitalWrite(m_ref.m_clockPin, LOW);
+    delayMicroseconds(100);
 
     // Set start bit and release the clock
-    SETDATAOUT;   //pinMode(m_ref.m_dataPin, OUTPUT);
-    SETDATALOW;   //digitalWrite(m_ref.m_dataPin, LOW);
-    SETCLOCKIN;   //pinMode(m_ref.m_clockPin, INPUT);
+    
+    SETDATAOUT;   
+    // pinMode(m_ref.m_dataPin, OUTPUT);
+    SETDATALOW;
+    // digitalWrite(m_ref.m_dataPin, LOW);
+    SETCLOCKIN;
+    // pinMode(m_ref.m_clockPin, INPUT);
 
     // Send data bits
     byte parity = 1;
@@ -130,42 +160,71 @@ struct Ps2Mouse::Impl {
     return recvBit() == 0;
   }
 
-  bool recvByte(byte& value) const {
+  bool sendByteSLOW(byte value) const {
+    // Inhibit communication
+    pinMode(m_ref.m_clockPin, OUTPUT);
+    digitalWrite(m_ref.m_clockPin, LOW);
+    delayMicroseconds(100);
+
+    // Set start bit and release the clock
+     pinMode(m_ref.m_dataPin, OUTPUT);
+    digitalWrite(m_ref.m_dataPin, LOW);
+   
+    pinMode(m_ref.m_clockPin, INPUT);
+
+    // Send data bits
+    byte parity = 1;
+    for (auto i = 0; i < 8; i++) {
+      byte nextBit = (value >> i) & 0x01;
+      parity ^= nextBit;
+      sendBit(nextBit);
+    }
+
+    // Send parity bit
+    sendBit(parity);
+
+    // Send stop bit
+    sendBit(1);
+
+    // Enter receive mode and wait for ACK bit
+    pinMode(m_ref.m_dataPin, INPUT);
+    return recvBit() == 0;
+  }
+
+
+  int recvByte(byte& value) const {
 
     // Enter receive mode
-    //pinMode(m_ref.m_clockPin, INPUT);
+    // pinMode(m_ref.m_clockPin, INPUT);
     //pinMode(m_ref.m_dataPin, INPUT);
       SETCLOCKIN;
       SETDATAIN;
-
+    
     // Receive start bit
     if (recvBit() != 0) {
-      return false;
+      return -1;
     }
-
     // Receive data bits
     value = 0;
     unsigned char parity = 0;
     for (int i = 0; i < 8; i++) {
-      byte nextBit = recvBit();
+      byte nextBit = recvBit(-1);
       value |= nextBit << i;
       parity += nextBit;
     }
-
-    // Receive and check parity bit
-    parity += recvBit();
-
-    // Receive stop bit
-    recvBit();
-
+     // Receive and check parity bit
+    parity += recvBit(-1);
     if(parity% 2 == 0){
       #if DEBUG>0
         Serial.println("Parity error!!!");
       #endif
-      return false;
+      return -2;
     } 
+    // Receive stop bit
+    recvBit();
+    
 
-    return true;
+    return 1;
   }
 
   template <typename T>
@@ -180,19 +239,24 @@ struct Ps2Mouse::Impl {
   }
 
   template <typename T>
-  bool recvData(T& data) const {
+  int recvData(T& data) const {
     auto ptr = reinterpret_cast<byte*>(&data);
     for (auto i = 0u; i < sizeof(data); i++) {
-      if (!recvByte(ptr[i])) {
-        return false;
+      int status = recvByte(ptr[i]);
+      if (status< 0) {
+        return status;
+        
       }
     }
-    return true;
+    return 1;
+  }
+  bool sendByteWithAck(byte value) const {
+    return sendByteWithAck(value,false);
   }
 
-  bool sendByteWithAck(byte value) const {
+  bool sendByteWithAck(byte value,bool slow) const {
     while (true) {
-      if (sendByte(value)) {
+      if (slow?sendByteSLOW(value):sendByte(value)) {
         byte response;
         if (recvByte(response)) {
 #if DEBUG>1
@@ -213,6 +277,10 @@ struct Ps2Mouse::Impl {
     }
   }
 
+  bool sendCommand(Command command,bool slow) const {
+    return sendByteWithAck(static_cast<byte>(command),slow);
+  }
+
   bool sendCommand(Command command) const {
     return sendByteWithAck(static_cast<byte>(command));
   }
@@ -223,6 +291,13 @@ struct Ps2Mouse::Impl {
 
   bool getStatus(Status& status) const {
     return sendCommand(Command::statusRequest) && recvData(status);
+  }
+
+  bool getDeviceId() const {
+    byte reply;
+    sendCommand(Command::getDeviceId);
+    recvByte(reply);
+    return byte(Response::isMouse);
   }
 };
 
@@ -235,22 +310,41 @@ Ps2Mouse::Ps2Mouse(byte clockPin, byte dataPin, bool setStream)
 {}
 
 bool Ps2Mouse::reset(bool stream) {
-  Impl impl{*this};
-
-  if (!impl.sendCommand(Command::reset)) {
-      return false;
-  }
-
   byte reply;
+  Impl impl{*this};
+  
+  if (!impl.sendCommand(Command::reset,true)) {
+      #if DEBUG>0
+        Serial.println("Error running reset cmd");
+      #endif
+      return reset(stream);
+  }
+  #if DEBUG>0
+        Serial.println("Reset cmd executed");
+  #endif
+  
   if (!impl.recvByte(reply) || reply != byte(Response::selfTestPassed)) {
+      #if DEBUG>0
+        Serial.println("Failed self test");
+      #endif
       return false;
+  }else{
+  #if DEBUG>0
+        Serial.println("Passed selftest");
+  #endif
   }
 #if DEBUG>0
   Serial.print(F("1st Reply: "));
   Serial.println(reply,HEX);
 #endif
   if (!impl.recvByte(reply) || reply != byte(Response::isMouse)) {
-      return false;
+      #if DEBUG>0
+        Serial.println("Device does not identify as mouse");
+      #endif
+  }else{
+      #if DEBUG>0
+            Serial.println("Device identifies as mouse");
+      #endif
   }
 #if DEBUG>0
   Serial.print(F("2nd Reply: "));
@@ -261,7 +355,7 @@ bool Ps2Mouse::reset(bool stream) {
 #if DEBUG>0
     Serial.println(F("Streaming Enabled"));
 #endif
-    return enableStreaming() && impl.sendCommand(Command::enableDataReporting);    
+    return enableStreaming() && impl.sendCommand(Command::enableDataReporting,true);    
   }
   else{
 #if DEBUG>0
@@ -274,12 +368,13 @@ bool Ps2Mouse::reset(bool stream) {
 
 bool Ps2Mouse::enableStreaming(){
   m_stream=true;
-  return Impl{*this}.sendCommand(Command::setStreamMode);
+  return Impl{*this}.sendCommand(Command::setStreamMode,true);
 }
 
 bool Ps2Mouse::disableStreaming() {
   m_stream=false;
-  return Impl{*this}.sendCommand(Command::setRemoteMode);
+
+  return Impl{*this}.sendCommand(Command::setRemoteMode,true);
 }
 
 bool Ps2Mouse::setScaling(bool flag) const {
@@ -294,9 +389,14 @@ bool Ps2Mouse::setSampleRate(byte sampleRate) const {
   return Impl{*this}.sendCommand(Command::setSampleRate, sampleRate);
 }
 
+bool Ps2Mouse::getDeviceID() const {
+  return Impl{*this}.getDeviceId();
+}
+
 bool Ps2Mouse::getSettings(Settings& settings) const {
   Status status;
   if (Impl{*this}.getStatus(status)) {
+    
     settings.scaling = status.scaling;
     settings.resolution = status.resolution;
     settings.sampleRate = status.sampleRate;
@@ -305,30 +405,54 @@ bool Ps2Mouse::getSettings(Settings& settings) const {
   return false;
 }
 
-bool Ps2Mouse::readData(Data& data) const {
+void Ps2Mouse::clearData(Data& data) const{
+    data.xMovement = data.yMovement = 0;
+    data.middleButton = false;
+    data.rightButton = false; 
+    data.leftButton = false;
+}
+
+ void Ps2Mouse::accumulate(Data& newData,Data& data) const{
+  data.xMovement += newData.xMovement;
+    data.yMovement += newData.yMovement;
+    data.leftButton = data.leftButton || newData.leftButton;
+    data.rightButton = data.rightButton || newData.rightButton;
+    data.middleButton = data.middleButton || newData.middleButton;
+ }
+
+int Ps2Mouse::readData(Data& data) const {
 
   Impl impl{*this};
 
   if (m_stream) {
      //if (digitalRead(m_clockPin) != LOW) {
      if ((PIND &=0b00000100) != 0 ) {
-       return false;
+       return -1;
      }
   }
   else if (!impl.sendCommand(Command::readData)) {
-    return false;
+    return 1;
+  }
+  Packet packet;
+  int dataStatus = impl.recvData(packet);
+  if(dataStatus<-1){
+    return 2;
+  }else if (dataStatus<0){
+    return 1;
   }
 
-  Packet packet;
-  if (!impl.recvData(packet)) {
-    return false;
+  if(!packet.na){
+    #if DEBUG>0
+      Serial.println("Error on first packet!");
+    #endif
+    return 3;
   }
 
   if(packet.xOverflow || packet.yOverflow){
     #if DEBUG>0
       Serial.println("Movement Overflow!");
     #endif
-    return ;
+    return 4 ;
   }
 
   data.leftButton = packet.leftButton;
@@ -336,5 +460,6 @@ bool Ps2Mouse::readData(Data& data) const {
   data.rightButton = packet.rightButton;
   data.xMovement = (packet.xSign ? -0x100 : 0) | packet.xMovement;
   data.yMovement = (packet.ySign ? -0x100 : 0) | packet.yMovement;
-  return true;
+
+  return 0;
 }
