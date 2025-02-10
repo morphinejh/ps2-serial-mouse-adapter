@@ -38,3 +38,6 @@
 #define SETRSTXHIGH   (PORTD |=0b00010000)      //0x10
 #define SETRSTXLOW    (PORTD &=0b11101111)      //0xEF
 /****************************************************/
+
+#define RESETON 100
+#define RCVTIMEOUT 450
